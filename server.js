@@ -15,17 +15,59 @@ async function sendTelegram(message) {
   });
 }
 
+async function claudeFormat(rawMessage) {
+  const response = await axios.post(
+    "https://api.anthropic.com/v1/messages",
+    {
+      model: "claude-sonnet-4-6",
+      max_tokens: 300,
+      messages: [
+        {
+          role: "user",
+          content: `You are a trading alert formatter. Format this raw ICT IFVG trading alert into a clean Telegram message. Use emojis. Keep it concise. Use exactly the numbers given, do not change any values.
+
+Raw alert: ${rawMessage}
+
+Format like this example:
+🟢 <b>NQ LONG — 10:14 EST</b>
+━━━━━━━━━━━━━━
+🎯 Entry: 21,228.50
+🛑 Stop: 21,219.00 (9.5pts)
+💰 Target: 21,274.00 (46pts)
+📊 RR: 1:4.8 | Grade: A+
+💵 Risk: $190 | NQ x1
+🟣 Gap: NDOG tapped
+━━━━━━━━━━━━━━
+✅ High probability setup
+
+For SHORT use 🔴 instead of 🟢. Only output the formatted message, nothing else.`
+        }
+      ]
+    },
+    {
+      headers: {
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+    }
+  );
+  return response.data.content[0].text;
+}
+
 app.post("/webhook", async (req, res) => {
   try {
     const msg = req.body.message || JSON.stringify(req.body);
     console.log("Alert received:", msg);
 
-    // Log the API key prefix so we can verify it
-    console.log("API key starts with:", ANTHROPIC_KEY ? ANTHROPIC_KEY.substring(0, 10) : "NOT SET");
+    if (typeof msg === "string" && msg.includes("GAP TAP")) {
+      await sendTelegram("🟣 <b>SPONSORED GAP TAPPED</b>\n" + msg);
+      return res.json({ ok: true });
+    }
 
-    // Send directly to Telegram first to test that pipeline
-    await sendTelegram("🔔 <b>Test Alert Received</b>\n\n" + msg);
-
+    const formatted = await claudeFormat(msg);
+    await sendTelegram(formatted);
+    console.log("Alert sent to Telegram successfully");
     res.json({ ok: true });
   } catch (err) {
     console.error("Error:", err.response?.data || err.message);
